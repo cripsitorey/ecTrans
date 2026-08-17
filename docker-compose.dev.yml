@@ -1,0 +1,20 @@
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  app:
+    build:
+      target: development
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
+    environment:
+      NODE_ENV: development

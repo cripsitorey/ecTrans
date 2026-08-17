@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users     User[]
+  vehicles  Vehicle[]
+  documents Document[]
+  trips     Trip[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id])
+  email         String    @unique
+  emailVerified DateTime?
+  passwordHash  String
+  fullName      String
+  name          String?
+  image         String?
+  role          Role
+  createdAt     DateTime  @default(now())
+
+  accounts Account[]
+  sessions Session[]
+  trips    Trip[]    @relation("DriverTrips")
+}
+
+enum Role {
+  CHOFER
+  ADMIN
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Vehicle {
+  id        String @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  plate     String
+  trips     Trip[]
+
+  @@unique([companyId, plate])
+}
+
+model Trip {
+  id                   String   @id @default(cuid())
+  companyId            String
+  company              Company  @relation(fields: [companyId], references: [id])
+  vehicleId            String
+  vehicle              Vehicle  @relation(fields: [vehicleId], references: [id])
+  driverId             String
+  driver               User     @relation("DriverTrips", fields: [driverId], references: [id])
+
+  date                 DateTime @db.Date
+  origin               String?
+  destination          String?
+  productOrGuideNumber String?
+  clientNameOrCompany  String?
+  viaticos             Decimal? @db.Decimal(10, 2)
+  diesel               Decimal? @db.Decimal(10, 2)
+  invoiceNumber        String?
+  advance              Decimal? @db.Decimal(10, 2)
+  notes                String?
+
+  documents            Document[]
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([companyId, date])
+  @@index([driverId, date])
+  @@index([vehicleId, date])
+}
+
+model Document {
+  id            String         @id @default(cuid())
+  companyId     String
+  company       Company        @relation(fields: [companyId], references: [id])
+  tripId        String?
+  trip          Trip?          @relation(fields: [tripId], references: [id])
+
+  type          DocumentType
+  source        DocumentSource @default(PWA_CAMERA)
+  storagePath   String
+  status        DocumentStatus @default(PENDING)
+
+  rawOcrText    String?        @db.Text
+  extractedData Json?
+  ocrConfidence Float?
+  errorMessage  String?
+
+  createdAt     DateTime       @default(now())
+  processedAt   DateTime?
+
+  @@index([companyId, status, createdAt])
+}
+
+enum DocumentType {
+  FACTURA
+  VOUCHER
+  GUIA
+  PEAJE
+}
+
+enum DocumentSource {
+  PWA_CAMERA
+  IMAP_PEAJES
+}
+
+enum DocumentStatus {
+  PENDING
+  EXTRACTED
+  NEEDS_REVIEW
+  VALIDATED
+  ERROR
+}
