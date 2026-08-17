@@ -26,7 +26,9 @@ cp .env.example .env
 docker compose up --build
 ```
 
-La app estará en http://localhost:3000
+La app estará en http://localhost:3000 (local) o `http://<IP-del-servidor>:3000` en red.
+
+> **Importante:** en el servidor, edita `.env` y pon `AUTH_URL` y `NEXTAUTH_URL` con la IP o dominio real (ej. `http://192.168.100.71:3000`). Luego reinicia: `docker compose restart app`.
 
 ### 3. Migraciones y seed (primera vez)
 
