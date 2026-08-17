@@ -49,6 +49,21 @@ docker compose --profile setup run --rm seed
 docker compose up -d --build app
 ```
 
+Verificar que el seed cargó usuarios:
+
+```bash
+chmod +x scripts/check-db.sh
+./scripts/check-db.sh
+```
+
+Deberías ver `admin@ectrans.demo` y `chofer@ectrans.demo`. Si la tabla está vacía, vuelve a correr el seed:
+
+```bash
+docker compose --profile setup run --rm seed
+```
+
+Credenciales demo: `demo1234` (ambos usuarios).
+
 ### Desarrollo local (sin Docker para la app)
 
 ```bash
