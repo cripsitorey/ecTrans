@@ -22,6 +22,51 @@ interface CameraCaptureProps {
   vehicleId: string;
 }
 
+/**
+ * Sin pedir resolución, getUserMedia entrega su valor por defecto (640x480),
+ * que deja ilegible un número de comprobante. Se pide 4K como `ideal` para que
+ * el navegador entregue lo máximo que soporte la cámara sin fallar si no llega.
+ */
+const RESOLUTION: MediaTrackConstraints = {
+  width: { ideal: 3840 },
+  height: { ideal: 2160 },
+};
+
+/**
+ * Enfoque continuo: al fotografiar un documento de cerca, el stream tiende a
+ * quedarse en foco infinito. No todos los navegadores lo soportan, y los que no,
+ * lo ignoran sin romper la petición.
+ *
+ * `focusMode` es parte de Media Capture pero todavía no está en los tipos del
+ * DOM, de ahí la conversión.
+ */
+const ADVANCED_FOCUS = [
+  { focusMode: "continuous" },
+] as unknown as MediaTrackConstraintSet[];
+
+const VIDEO_CONSTRAINTS: Record<
+  "environment" | "user",
+  MediaTrackConstraints
+> = {
+  environment: {
+    facingMode: { ideal: "environment" },
+    ...RESOLUTION,
+    advanced: ADVANCED_FOCUS,
+  },
+  user: {
+    facingMode: { ideal: "user" },
+    ...RESOLUTION,
+    advanced: ADVANCED_FOCUS,
+  },
+};
+
+/**
+ * Cota superior del lado más largo antes de subir. El servidor reescala a 2000 px
+ * de ancho para el OCR, así que enviar la foto en 4K solo gasta datos móviles del
+ * chofer y arriesga el límite de 10 MB.
+ */
+const MAX_UPLOAD_EDGE = 2600;
+
 const DOCUMENT_TYPES: {
   type: DocumentType;
   label: string;
@@ -41,6 +86,10 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
   const [docType, setDocType] = useState<DocumentType | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingRetry, setPendingRetry] = useState<Blob | null>(null);
+  const [captureSize, setCaptureSize] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
 
   const [fields, setFields] = useState({
     amount: "",
@@ -57,9 +106,21 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
   });
 
   const capture = useCallback(() => {
-    const screenshot = webcamRef.current?.getScreenshot();
+    const webcam = webcamRef.current;
+    const video = webcam?.video;
+    if (!webcam || !video?.videoWidth) return;
+
+    // Se piden las dimensiones del stream de forma explícita. react-webcam
+    // cachea el tamaño del canvas en la primera captura, así que sin esto una
+    // foto tomada después de cambiar de cámara saldría con el tamaño anterior.
+    const screenshot = webcam.getScreenshot({
+      width: video.videoWidth,
+      height: video.videoHeight,
+    });
+
     if (screenshot) {
       setImageSrc(screenshot);
+      setCaptureSize({ width: video.videoWidth, height: video.videoHeight });
       setStep("preview");
     }
   }, []);
@@ -68,10 +129,43 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
     setFacingMode((prev) => (prev === "environment" ? "user" : "environment"));
   };
 
-  const dataUrlToBlob = async (dataUrl: string): Promise<Blob> => {
-    const res = await fetch(dataUrl);
-    return res.blob();
-  };
+  /**
+   * Reduce la foto al lado máximo de subida conservando la proporción. Se
+   * mantiene una calidad JPEG alta porque el OCR depende de los bordes nítidos
+   * de los caracteres, que es justo lo primero que destruye la compresión.
+   */
+  const dataUrlToBlob = (dataUrl: string): Promise<Blob> =>
+    new Promise((resolve, reject) => {
+      const image = new window.Image();
+
+      image.onload = () => {
+        const longestEdge = Math.max(image.width, image.height);
+        const scale = Math.min(1, MAX_UPLOAD_EDGE / longestEdge);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(image.width * scale);
+        canvas.height = Math.round(image.height * scale);
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("No se pudo procesar la imagen"));
+          return;
+        }
+
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(
+          (blob) =>
+            blob ? resolve(blob) : reject(new Error("No se pudo procesar la imagen")),
+          "image/jpeg",
+          0.92
+        );
+      };
+
+      image.onerror = () => reject(new Error("No se pudo leer la foto"));
+      image.src = dataUrl;
+    });
 
   const uploadImage = async (blob: Blob) => {
     setStep("uploading");
@@ -104,8 +198,12 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
 
   const confirmPhoto = async () => {
     if (!imageSrc) return;
-    const blob = await dataUrlToBlob(imageSrc);
-    await uploadImage(blob);
+    try {
+      const blob = await dataUrlToBlob(imageSrc);
+      await uploadImage(blob);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo procesar la foto");
+    }
   };
 
   const selectType = async (type: DocumentType) => {
@@ -181,6 +279,7 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
     setDocType(null);
     setError(null);
     setPendingRetry(null);
+    setCaptureSize(null);
     setFields({
       amount: "",
       date: "",
@@ -203,7 +302,12 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
           ref={webcamRef}
           audio={false}
           screenshotFormat="image/jpeg"
-          videoConstraints={{ facingMode }}
+          screenshotQuality={0.95}
+          forceScreenshotSourceSize
+          videoConstraints={VIDEO_CONSTRAINTS[facingMode]}
+          onUserMediaError={() =>
+            setError("No se pudo abrir la cámara. Revise los permisos.")
+          }
           className="h-full w-full object-cover"
         />
         <div className="absolute bottom-0 left-0 right-0 flex flex-col items-center gap-4 bg-gradient-to-t from-black/80 to-transparent pb-10 pt-16">
@@ -232,6 +336,11 @@ export function CameraCapture({ vehicleId }: CameraCaptureProps) {
           <img src={imageSrc} alt="Vista previa" className="h-full w-full object-contain" />
         )}
         <div className="absolute bottom-0 left-0 right-0 flex flex-col gap-3 bg-black/80 p-4">
+          {captureSize && (
+            <p className="text-center text-xs text-white/60">
+              {captureSize.width} × {captureSize.height} px
+            </p>
+          )}
           {error && (
             <p className="rounded-lg bg-red-600/90 px-4 py-3 text-center text-white">
               {error}
