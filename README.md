@@ -82,6 +82,19 @@ Ver [worker/README.md](worker/README.md) para detalles.
 - Cambiar `AUTH_SECRET`, credenciales de Postgres y MinIO
 - Bucket MinIO privado (configurado automáticamente por minio-init)
 
+### Si el build falla con "Temporary failure resolving deb.debian.org"
+
+El Dockerfile ya usa `network: host` durante `apt-get` y `npm`. Si persiste, configura DNS en Docker:
+
+```json
+// /etc/docker/daemon.json
+{
+  "dns": ["8.8.8.8", "1.1.1.1"]
+}
+```
+
+Luego: `systemctl restart docker` y vuelve a ejecutar `docker compose up -d --build`.
+
 ## Estructura OCR
 
 Los patrones de extracción por tipo de documento viven en `lib/ocr/patterns/`.

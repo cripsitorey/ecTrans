@@ -1,18 +1,27 @@
+# syntax=docker/dockerfile:1
+
 FROM node:20-bookworm-slim AS base
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    tesseract-ocr-spa \
-    poppler-utils \
-    openssl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Usa red del host durante build: evita fallos DNS en servidores
+# donde el bridge de Docker no resuelve deb.debian.org
+RUN --network=host sh -c '\
+  for i in 1 2 3 4 5; do \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+      tesseract-ocr \
+      tesseract-ocr-spa \
+      poppler-utils \
+      openssl \
+      ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && exit 0; \
+    echo "Reintentando apt ($i/5)..."; sleep 5; \
+  done; exit 1'
 
 WORKDIR /app
 
 FROM base AS development
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --network=host npm ci
 COPY . .
 RUN npx prisma generate
 EXPOSE 3000
@@ -20,14 +29,14 @@ CMD ["npm", "run", "dev"]
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN --network=host npm ci
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN --network=host npm run build
 
 FROM base AS runner
 ENV NODE_ENV=production
