@@ -32,10 +32,29 @@ La app estará en http://localhost:3000 (local) o `http://<IP-del-servidor>:3000
 
 ### 3. Migraciones y seed (primera vez)
 
+Las migraciones corren **automáticamente** al iniciar el contenedor `app`.
+
+Para el seed demo (solo la primera vez):
+
 ```bash
-docker compose exec app npx prisma migrate deploy
-docker compose exec app npx prisma db seed
+docker compose exec app node ./node_modules/tsx/dist/cli.mjs prisma/seed.ts
 ```
+
+O reinicia con seed automático:
+
+```bash
+RUN_SEED=true docker compose up -d app
+# Luego vuelve RUN_SEED=false en docker-compose o .env
+```
+
+Comandos manuales (si necesitas):
+
+```bash
+docker compose exec app node ./node_modules/prisma/build/index.js migrate deploy
+docker compose exec app node ./node_modules/tsx/dist/cli.mjs prisma/seed.ts
+```
+
+> No uses `npx` dentro del contenedor de producción — el usuario `nextjs` no tiene home válido para npm cache.
 
 ### Desarrollo local (sin Docker para la app)
 

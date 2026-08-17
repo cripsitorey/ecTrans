@@ -68,6 +68,8 @@ services:
       DATABASE_URL: postgresql://ectrans:${POSTGRES_PASSWORD:-ectrans_dev_password}@postgres:5432/ectrans
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
+      RUN_MIGRATIONS: "true"
+      RUN_SEED: "false"
     depends_on:
       postgres:
         condition: service_healthy
