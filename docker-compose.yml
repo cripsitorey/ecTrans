@@ -68,8 +68,6 @@ services:
       DATABASE_URL: postgresql://ectrans:${POSTGRES_PASSWORD:-ectrans_dev_password}@postgres:5432/ectrans
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
-      RUN_MIGRATIONS: "true"
-      RUN_SEED: "false"
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +75,42 @@ services:
         condition: service_started
       minio-init:
         condition: service_completed_successfully
+    networks:
+      - ectrans-net
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+      network: host
+    container_name: ectrans-migrate
+    profiles:
+      - setup
+    environment:
+      DATABASE_URL: postgresql://ectrans:${POSTGRES_PASSWORD:-ectrans_dev_password}@postgres:5432/ectrans
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ectrans-net
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+      network: host
+    container_name: ectrans-seed
+    profiles:
+      - setup
+    environment:
+      DATABASE_URL: postgresql://ectrans:${POSTGRES_PASSWORD:-ectrans_dev_password}@postgres:5432/ectrans
+    command: ["npx", "tsx", "prisma/seed.ts"]
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - ectrans-net
 
