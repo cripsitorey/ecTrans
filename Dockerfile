@@ -21,7 +21,7 @@ WORKDIR /app
 
 FROM base AS development
 COPY package.json package-lock.json ./
-RUN --network=host npm ci
+RUN --network=host npm ci --ignore-scripts
 COPY . .
 RUN npx prisma generate
 EXPOSE 3000
@@ -29,7 +29,7 @@ CMD ["npm", "run", "dev"]
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN --network=host npm ci
+RUN --network=host npm ci --ignore-scripts
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
