@@ -10,6 +10,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DocumentStatusBadge } from "@/components/admin/DocumentStatusBadge";
+import { DocumentUploadForm } from "@/components/admin/DocumentUploadForm";
 
 export default async function AdminDocumentsPage() {
   const documents = await getAdminDocuments();
@@ -22,6 +23,8 @@ export default async function AdminDocumentsPage() {
           Cola de revisión — prioridad: Revisión → Error → Pendiente
         </p>
       </div>
+
+      <DocumentUploadForm />
 
       <div className="overflow-x-auto rounded-lg border">
         <Table>

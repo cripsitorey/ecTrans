@@ -129,14 +129,66 @@ El Dockerfile ya usa `network: host` durante `apt-get` y `npm`. Si persiste, con
 
 Luego: `systemctl restart docker` y vuelve a ejecutar `docker compose up -d --build`.
 
-## Estructura OCR
+## Procesamiento de documentos
 
-Los patrones de extracción por tipo de documento viven en `lib/ocr/patterns/`.
-El parser de facturas ecuatorianas (`lib/ocr/parsers/factura.ts`) lee `factura.ec.json`.
+### Cómo se obtiene el texto
 
-Estados de documento:
+`lib/ocr/extract-text.ts` elige el camino más fiable según el archivo:
+
+| Entrada | Camino | Precisión |
+|---|---|---|
+| Foto (chofer) | Tesseract sobre imagen preprocesada | alta en documentos impresos |
+| PDF electrónico (admin) | capa de texto vía `pdftotext` | exacta, sin OCR |
+| PDF escaneado (admin) | rasterizado + Tesseract | como una foto |
+
+### Clave de acceso del SRI
+
+`lib/ocr/sri/clave-acceso.ts` decodifica los 49 dígitos que identifican a todo
+comprobante electrónico ecuatoriano. De ahí salen, de una sola lectura, la fecha
+de emisión, el tipo de comprobante, el RUC del emisor y el número completo. El
+dígito verificador módulo 11 confirma que la lectura es correcta.
+
+Como el tipo va codificado (`01` factura, `06` guía de remisión), el documento se
+clasifica solo: lo que el chofer eligió en pantalla queda como respaldo.
+
+Ese dígito verificador sirve para **detectar** errores, no para corregirlos: entre
+las sustituciones de un dígito, aproximadamente 1 de cada 11 vuelve a validar por
+azar. Cuando la clave no cuadra, se reconstruye a partir de los campos que el RIDE
+imprime por separado (`reconstructFromHints`).
+
+### Parsers
+
+- `lib/ocr/parsers/factura.ts` — RIDE del SRI y, como respaldo, comprobantes de
+  formato libre con los patrones de `lib/ocr/patterns/factura.ec.json`
+- `lib/ocr/parsers/guia.ts` — guía de remisión electrónica y guía manual
+- `lib/ocr/parsers/voucher.ts` — pendiente, a la espera de ejemplos reales
+
+Al leer un RIDE, los espacios consecutivos se conservan a propósito: son lo único
+que separa una columna de la siguiente, y sin ellos el valor de un campo se vuelve
+indistinguible del rótulo vecino.
+
+### Documentos manuscritos
+
+Tesseract reconoce texto impreso, no escritura a mano: sobre una guía de remisión
+manual recupera los rótulos del formulario pero ninguno de los valores escritos a
+bolígrafo. Para esos casos, `lib/ocr/vision/extract-vision.ts` consulta un modelo
+de visión. Es opcional: sin `AI_GATEWAY_API_KEY` el documento sigue su curso hacia
+captura manual asistida en lugar de fallar. Todo lo que resuelve la visión pasa
+siempre por revisión humana.
+
+### Probar los parsers
+
+Sin base de datos ni MinIO, contra archivos reales:
+
+```bash
+npx tsx scripts/test-extraction.ts factura.pdf foto-guia.jpg
+npx tsx scripts/test-extraction.ts --type=GUIA guia-manual.jpg
+```
+
+### Estados de documento
+
 - `PENDING` → en cola
 - `EXTRACTED` → campos mínimos OK
-- `NEEDS_REVIEW` → texto OCR pero campos incompletos
-- `ERROR` → fallo técnico OCR
+- `NEEDS_REVIEW` → se leyó texto pero los campos están incompletos, o los resolvió el modelo de visión
+- `ERROR` → no se obtuvo texto usable
 - `VALIDATED` → revisado por humano

@@ -3,10 +3,18 @@ import { auth, requireRole } from "@/lib/auth";
 import { Role, DocumentType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { uploadDocument, validateUpload } from "@/lib/storage";
+import { processDocument } from "@/lib/ocr/process-document";
 
+/**
+ * Carga de documentos desde el panel de administración.
+ *
+ * A diferencia de la app del chofer, que solo envía fotos, aquí se aceptan
+ * también los PDF originales de los comprobantes electrónicos, que se leen de
+ * su capa de texto sin pasar por OCR.
+ */
 export async function POST(req: NextRequest) {
   try {
-    await requireRole([Role.CHOFER]);
+    await requireRole([Role.ADMIN]);
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -21,26 +29,16 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const mimeType = validateUpload(buffer, file.type || undefined);
-
-    if (mimeType === "application/pdf") {
-      return NextResponse.json(
-        { error: "Desde la app solo se pueden subir fotos" },
-        { status: 400 }
-      );
-    }
-
     const storagePath = await uploadDocument(
       session.user.companyId,
       buffer,
       mimeType
     );
 
-    // El tipo real se resuelve al procesar: lo elige el chofer y, si el
-    // documento resulta ser electrónico, lo confirma la clave de acceso.
     const declaredType = formData.get("type");
     const type =
       typeof declaredType === "string" &&
-      ["FACTURA", "VOUCHER", "GUIA"].includes(declaredType)
+      Object.keys(DocumentType).includes(declaredType)
         ? (declaredType as DocumentType)
         : DocumentType.FACTURA;
 
@@ -54,9 +52,18 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Sin un tipo declarado por el usuario, dejamos que el contenido lo decida.
+    const result = await processDocument(document.id, {
+      autoDetectType: typeof declaredType !== "string",
+    });
+
     return NextResponse.json({
       documentId: document.id,
-      storagePath,
+      type: result.type,
+      status: result.status,
+      extractedData: result.extractedData,
+      confidence: result.confidence,
+      source: result.source,
     });
   } catch (error) {
     const message =
